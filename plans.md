@@ -1,6 +1,8 @@
-***
-
 # Project Proposal: Intelligent River Level Monitoring & Flood Prediction System
+
+### Preview
+![Gemini_Generated_Image_6e9x3m6e9x3m6e9x](https://github.com/user-attachments/assets/ae65ff3b-5207-4fa3-a7a6-4ecf3aed4343)
+
 
 ### 1. Aim
 To develop a low-cost, robust, continuous river level monitoring system using **Computer Vision (IoT)** to replace unreliable ultrasonic sensors. The system aims to provide real-time data and predict flood risks **6 hours in advance**, integrating hydraulic modeling for impact assessment.
@@ -56,5 +58,3 @@ The server isolates the pole in the image, counts the visible bands/reflectors, 
 1.  **Zero Blind Spots:** System works from 0cm to Infinity (as long as line-of-sight exists).
 2.  **Night Capability:** Retro-reflector logic ensures clear data even in pitch darkness.
 3.  **Actionable Intelligence:** Moving beyond "Current Level" to "Predicted Impact" (e.g., "Road X will submerge in 4 hours").
-
-***
