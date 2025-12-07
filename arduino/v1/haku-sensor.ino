@@ -1,31 +1,32 @@
-#include <WiFi.h> // <-- Changed from ESP8266WiFi.h
+#include <WiFi.h>
 #include <PubSubClient.h>
 
 // WiFi credentials
-const char* ssid = "Gianna's S24+";
-const char* password = "g2024271";
+const char* ssid = "FTTH-2ACD";
+const char* password = "9495312626";
 
 // HiveMQ broker details
 const char* mqtt_server = "broker.hivemq.com";
 const int mqtt_port = 1883;
-
-// HiveMQ credentials
 const char* mqtt_username = "hivemq.webclient.1760861168522";
 const char* mqtt_password = "q0c7JF8Kfv@%e9LQ!#Bn";
-
-// Topic
 const char* topic = "/hari";
 
-// --- Sensor Definitions (Comments updated for ESP32) ---
+// --- Sensor Definitions ---
+// Sensor 1
 #define TRIG_PIN_1 4    // GPIO 4
+#define ECHO_PIN_1 16   // GPIO 16 (RX2)
+
+// Sensor 2
 #define TRIG_PIN_2 5    // GPIO 5
-#define ECHO_PIN 16     // GPIO 16 (RX2)
-#define NUM_SAMPLES 5   // Number of samples to average for each sensor
+#define ECHO_PIN_2 17   // GPIO 17 (TX2)
+
+#define NUM_SAMPLES 5   // Number of samples to average
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-// --- WiFi Setup (Unchanged logic) ---
+// --- WiFi Setup ---
 void setup_wifi() {
   delay(10);
   Serial.println();
@@ -44,7 +45,7 @@ void setup_wifi() {
   Serial.println(WiFi.localIP());
 }
 
-// --- Get Single Sensor Reading (Calculation MODIFIED) ---
+// --- Get Single Sensor Reading ---
 float getSensorReading(int trigPin, int echoPin) {
   // Ensure trigger pin is low
   digitalWrite(trigPin, LOW);
@@ -55,32 +56,31 @@ float getSensorReading(int trigPin, int echoPin) {
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
 
-  // Read the echo pin (timeout of 30000 us)
+  // Read the echo pin (timeout of 30000 us = ~5 meters)
   long duration = pulseIn(echoPin, HIGH, 30000);
 
-  // --- Check for timeout (duration == 0) ---
+  // --- Check for timeout ---
   if (duration == 0) {
-    return -1.0; // Indicate a bad reading
+    return -1.0; 
   }
   
-  // --- Check for out-of-range (sensor max is ~400 cm) ---
-  // We do a quick check in CM first just to filter bad sensor data
+  // --- Check for out-of-range (>400cm) ---
   float distance_cm_check = (duration * 0.0343) / 2.0;
   if (distance_cm_check > 400) {
-    return -1.0; // Indicate a bad reading (too far)
+    return -1.0; 
   }
 
-  // --- START: User's new calculation ---
+  // --- START: User's calculation ---
   float distance_feet;
   distance_feet = duration * 0.034 / 2 / 30.48;
   distance_feet = 7.1 - distance_feet + 0.977;
   distance_feet = distance_feet - 0.5;
-  // --- END: User's new calculation ---
+  // --- END: User's calculation ---
 
   return distance_feet;
 }
 
-// --- Get Averaged Sensor Reading (Unchanged) ---
+// --- Get Averaged Sensor Reading ---
 float getAverageReading(int trigPin, int echoPin, int numSamples) {
   float totalDistance = 0;
   int validReadings = 0;
@@ -101,18 +101,15 @@ float getAverageReading(int trigPin, int echoPin, int numSamples) {
   }
 }
 
-// --- MQTT Reconnect (Client ID generation changed) ---
+// --- MQTT Reconnect ---
 void reconnect() {
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection... ");
     
-    // --- Changed for ESP32 ---
-    // Create a unique client ID using the ESP32's MAC address
+    // Create unique Client ID
     String clientId = "ESP32-";
     clientId += WiFi.macAddress();
-    // --- End Change ---
     
-    // Connect with username & password
     if (client.connect(clientId.c_str(), mqtt_username, mqtt_password)) {
       Serial.println("connected ✅");
     } else {
@@ -124,41 +121,43 @@ void reconnect() {
   }
 }
 
-// --- Setup (Unchanged) ---
+// --- Setup ---
 void setup() {
   Serial.begin(115200);
 
-  // Initialize sensor pins
+  // Initialize pins
   pinMode(TRIG_PIN_1, OUTPUT);
+  pinMode(ECHO_PIN_1, INPUT); // Sensor 1 Echo
+
   pinMode(TRIG_PIN_2, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
+  pinMode(ECHO_PIN_2, INPUT); // Sensor 2 Echo
 
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
 }
 
-// --- Main Loop (Print statements MODIFIED) ---
+// --- Main Loop ---
 void loop() {
   if (!client.connected()) {
     reconnect();
   }
   client.loop();
 
-  // 1. Get average reading from Sensor 1
-  float distance1 = getAverageReading(TRIG_PIN_1, ECHO_PIN, NUM_SAMPLES);
-  Serial.print("Sensor 1 Avg (GPIO 4): ");
+  // 1. Get average reading from Sensor 1 (Using ECHO_PIN_1)
+  float distance1 = getAverageReading(TRIG_PIN_1, ECHO_PIN_1, NUM_SAMPLES);
+  Serial.print("Sensor 1 (D4/D16): ");
   Serial.print(distance1);
-  Serial.println(" feet"); // <-- Changed from cm
+  Serial.println(" ft");
 
-  // 2. Get average reading from Sensor 2
-  float distance2 = getAverageReading(TRIG_PIN_2, ECHO_PIN, NUM_SAMPLES);
-  Serial.print("Sensor 2 Avg (GPIO 5): ");
+  // 2. Get average reading from Sensor 2 (Using ECHO_PIN_2)
+  float distance2 = getAverageReading(TRIG_PIN_2, ECHO_PIN_2, NUM_SAMPLES);
+  Serial.print("Sensor 2 (D5/D17): ");
   Serial.print(distance2);
-  Serial.println(" feet"); // <-- Changed from cm
+  Serial.println(" ft");
 
   float averageDistance = -1.0;
 
-  // 3. Calculate the average of the two sensors
+  // 3. Logic to average them
   if (distance1 != -1.0 && distance2 != -1.0) {
     averageDistance = (distance1 + distance2) / 2.0;
   } else if (distance1 != -1.0) {
@@ -171,22 +170,19 @@ void loop() {
 
   // 4. Publish if we have a valid reading
   if (averageDistance != -1.0) {
-    Serial.print("Overall Average Distance: ");
+    Serial.print("Overall Average: ");
     Serial.print(averageDistance);
-    Serial.println(" feet"); // <-- Changed from cm
+    Serial.println(" ft");
 
-    // Prepare message for MQTT (convert float to string)
     char msgBuffer[10];
     dtostrf(averageDistance, 4, 2, msgBuffer); 
 
-    // 5. Publish the message
     client.publish(topic, msgBuffer);
-    Serial.print("🚀 Message published to ");
+    Serial.print("🚀 Published to ");
     Serial.print(topic);
     Serial.print(": ");
     Serial.println(msgBuffer);
   }
 
-  // Wait 5 seconds before the next reading and publish
   delay(5000);
 }
