@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRRM Meenachil River & Rain Monitoring Network</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        :root {
+            --bg: #fcfcfc;
+            --text-main: #505050;
+            --text-muted: #a0a0a0;
+            --border: #e0e0e0;
+            --accent: #707070;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: 'Fira Code', monospace;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-transform: lowercase;
+            font-size: 13px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            min-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            box-sizing: border-box;
+            gap: 2rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px dashed var(--border);
+            padding-bottom: 1rem;
+            gap: 1rem;
+        }
+
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            background-color: var(--border);
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            transition: background-color 0.3s ease;
+        }
+
+        .connected .status-dot {
+            background-color: #98c379; /* soft green */
+        }
+
+        .main-display {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            padding: 2rem 0;
+        }
+
+        .sensors-display {
+            display: flex;
+            gap: 3rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .sensor-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .sensor-value {
+            font-size: 1.2rem;
+            font-weight: 300;
+        }
+
+        .label {
+            color: var(--text-muted);
+            font-size: 11px;
+            text-align: center;
+        }
+
+        #current-value {
+            font-size: 2.5rem;
+            font-weight: 300;
+            letter-spacing: -1px;
+        }
+
+        .logbox {
+            height: 200px;
+            border-top: 1px dashed var(--border);
+            padding-top: 1rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .ts {
+            color: var(--text-muted);
+            min-width: 80px;
+        }
+
+        .msg {
+            color: var(--text-main);
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 1.5rem;
+                gap: 1.5rem;
+            }
+            header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+            .sensors-display {
+                gap: 2rem;
+            }
+            #current-value {
+                font-size: 2rem;
+            }
+        }
+
+        /* minimal scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #eee;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header id="status-header">
+            <div>mrrm: meenachil river & rain monitoring network</div>
+            <div id="connection-status"><span class="status-dot"></span>disconnected</div>
+        </header>
+
+        <div class="main-display">
+            <span class="label">average value @ /hari</span>
+            <div id="current-value">...</div>
+            <div class="sensors-display">
+                <div class="sensor-item">
+                    <span class="label">sensor 1</span>
+                    <span id="s1-value" class="sensor-value">--</span>
+                </div>
+                <div class="sensor-item">
+                    <span class="label">sensor 2</span>
+                    <span id="s2-value" class="sensor-value">--</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="logbox" id="logbox">
+            <!-- logs will appear here -->
+        </div>
+    </div>
+
+    <script>
+        const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+        const options = {
+            username: 'hivemq.webclient.1760861168522',
+            password: 'q0c7JF8Kfv@%e9LQ!#Bn',
+            clientId: 'web-sub-' + Math.random().toString(16).substring(2, 8)
+        };
+        const topic = '/hari';
+
+        const statusEl = document.getElementById('connection-status');
+        const statusHeader = document.getElementById('status-header');
+        const valueEl = document.getElementById('current-value');
+        const s1El = document.getElementById('s1-value');
+        const s2El = document.getElementById('s2-value');
+        const logbox = document.getElementById('logbox');
+
+        function log(msg) {
+            const now = new Date();
+            const ts = now.toISOString().split('T')[1].slice(0, 8); // hh:mm:ss
+            
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="ts">${ts}</span><span class="msg">${msg.toLowerCase()}</span>`;
+            
+            logbox.insertBefore(entry, logbox.firstChild);
+            
+            // keep logbox clean, max 50 items
+            if (logbox.children.length > 50) {
+                logbox.removeChild(logbox.lastChild);
+            }
+        }
+
+        function updateStatus(connected) {
+            if (connected) {
+                statusEl.innerHTML = '<span class="status-dot"></span>connected';
+                statusHeader.classList.add('connected');
+                log('system: connected to broker');
+            } else {
+                statusEl.innerHTML = '<span class="status-dot"></span>disconnected';
+                statusHeader.classList.remove('connected');
+                log('system: disconnected');
+            }
+        }
+
+        log('system: initializing...');
+        
+        const client = mqtt.connect(brokerUrl, options);
+
+        client.on('connect', () => {
+            updateStatus(true);
+            client.subscribe(topic, (err) => {
+                if (!err) {
+                    log(`system: subscribed to ${topic}`);
+                } else {
+                    log(`error: subscription failed - ${err.message}`);
+                }
+            });
+        });
+
+        client.on('message', (receivedTopic, message) => {
+            const msgStr = message.toString();
+            try {
+                const data = JSON.parse(msgStr);
+                if (typeof data.s1 === 'number' && typeof data.s2 === 'number') {
+                    const avg = (data.s1 + data.s2) / 2;
+                    valueEl.textContent = avg.toFixed(2);
+                    s1El.textContent = data.s1.toFixed(2);
+                    s2El.textContent = data.s2.toFixed(2);
+                    log(`recv: s1=${data.s1}, s2=${data.s2}, avg=${avg.toFixed(2)}`);
+                } else {
+                    log(`recv: invalid data format`);
+                    valueEl.textContent = 'err';
+                }
+            } catch (e) {
+                log(`recv: ${msgStr} (not json)`);
+                valueEl.textContent = '...';
+            }
+        });
+
+        client.on('error', (err) => {
+            log(`error: ${err.message}`);
+            updateStatus(false);
+            client.end();
+        });
+
+        client.on('close', () => {
+            updateStatus(false);
+        });
+    </script>
+    <script type="module">
+        import { StatusBar } from '@capacitor/status-bar';
+        window.addEventListener('load', async () => {
+            try {
+                await StatusBar.hide();
+            } catch (e) {
+                console.log('StatusBar error:', e);
+            }
+        });
+    </script>
+</body>
+</html>
